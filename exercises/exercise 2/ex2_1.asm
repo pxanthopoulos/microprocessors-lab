@@ -1,0 +1,106 @@
+.include "m328PBdef.inc"
+    
+.equ FOSC_MHZ=16
+.equ DEL_mS=500
+.equ DEL_NU = FOSC_MHZ*DEL_mS
+
+.org 0x0
+    rjmp reset
+.org 0x4
+    rjmp ISR1
+    
+reset:
+    ldi r24, low(RAMEND)
+    out SPL,r24
+    ldi r24, high(RAMEND)
+    out SPH,r24
+    
+    ldi r24, (1 << ISC11) | (1 << ISC10)
+    sts EICRA, r24
+    
+    ldi r24, (1 << INT1)
+    out EIMSK, r24	;INT1 is enabled at rising edge
+			
+    sei
+    
+init:    
+    ser r26
+    out DDRB, r26	;PORT B as output
+    out DDRC, r26	;PORT C	as output
+    clr r26
+    out DDRD, r26	;PORT D as output
+    clr r22		;r22 is interrupt counter, initialized at 0
+    
+loop1:
+    clr r26		;counter code (given)
+   
+loop2:
+    out PORTB, r26
+    
+    ldi r24, low(DEL_NU)
+    ldi r25, high(DEL_NU)
+    rcall delay_mS
+    
+    inc r26
+    
+    cpi r26, 16
+    breq loop1
+    rjmp loop2
+    
+    
+    
+delay_mS:	    ;delay of 1000*DEL_NU + 6 cycles
+    ldi r23, 249    ;default is 249, for simulator set to 10
+loop_inn:
+    dec r23
+    nop
+    brne loop_inn
+    
+    sbiw r24, 1
+    brne delay_mS
+    
+    ret
+    
+    
+    
+ISR1:
+    push r25		    ;save r24, r25 because we use them later
+    push r24
+    in r24, SREG	    ;save SREG
+    push r24
+    
+debounce:		    ;debounce avoidance algorithm (given)
+    ldi r24, (1 << INTF1)
+    out EIFR, r24
+    
+    ldi r24, low(16*5)
+    ldi r25, high(16*5)
+    rcall delay_mS
+    
+    in r24, EIFR
+    lsr r24
+    lsr r24
+    brcs debounce
+
+check_PD7:
+    in r24, PIND	;check if PD7 is pressed, if yes, dont increase counter
+			;and skip straight to the end
+    lsl r24
+    brcc end		;brcc for lab, brcs for simulator
+    
+    inc r22		;increase counter
+    cpi r22, 32		;if 32, set to 0
+    brne next		
+    
+    clr r22
+
+next:
+    out PORTC, r22	;output 
+    
+end:   
+    pop r24		;return saved values
+    out SREG, r24
+    pop r24
+    pop r25
+    
+    reti
